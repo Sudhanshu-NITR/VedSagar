@@ -10,9 +10,11 @@ import (
 	redisstore "notification-service/internal/storage/redis"
 
 	"github.com/gin-gonic/gin"
+	"github.com/joho/godotenv"
 )
 
 func main() {
+	_ = godotenv.Load()
 	cfg := config.Load()
 
 	// Build store with a startup connectivity check

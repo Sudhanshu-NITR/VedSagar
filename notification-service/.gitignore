@@ -1,0 +1,60 @@
+# Executables and Binaries
+# -------------------------
+
+# Compiled binaries for the current project
+*.exe
+*.dll
+*.so
+*.dylib
+*.a
+*.out
+main
+server
+app
+
+# Test binaries, usually produced by 'go test -c'
+*-test
+
+# Temporary files created by the linker (Go 1.20+)
+*.o
+
+# Dependency and Build Artifacts
+# ------------------------------
+
+# Dependency cache from go build or go install (Go 1.11+)
+/pkg/
+
+# The workspace cache (Go 1.10+)
+/go.work.sum
+/go.work.old
+
+# Directories created by 'go tool cover'
+/cover/
+
+# Package metadata cache files
+.cache
+
+# Development Tools and IDE
+# -------------------------
+
+# JetBrains IDEs (Goland, IntelliJ, etc.)
+.idea/
+*.iws
+*.iml
+*.ipr
+
+# VS Code
+.vscode/
+
+# Vim/NeoVim swap files
+*.swp
+*.swo
+
+# macOS/OS-specific files
+.DS_Store
+Thumbs.db
+
+# Environment file containing sensitive credentials
+.env 
+.env.*
+.env.local
