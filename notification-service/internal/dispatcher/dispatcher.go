@@ -20,7 +20,7 @@ type Dispatcher struct {
 func NewDispatcher(store storage.NotificationStore) *Dispatcher {
 	return &Dispatcher{
 		handlers: map[string]ChannelHandler{
-			"sms":   &channels.SMSHandler{},
+			"sms":   channels.NewSMSHandler(),
 			"email": &channels.EmailHandler{},
 			"push":  &channels.PushHandler{},
 		},

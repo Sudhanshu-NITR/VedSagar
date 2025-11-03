@@ -3,34 +3,62 @@ package channels
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	"notification-service/internal/logger"
 	"notification-service/pkg/models"
+
+	twilio "github.com/twilio/twilio-go"
+	openapi "github.com/twilio/twilio-go/rest/api/v2010"
 )
 
-type SMSHandler struct{}
+// SMSHandler sends SMS via Twilio
+type SMSHandler struct {
+	client       *twilio.RestClient
+	fromPhoneNum string
+}
 
+// NewSMSHandler initializes SMSHandler with Twilio credentials from env vars
+func NewSMSHandler() *SMSHandler {
+	accountSID := os.Getenv("TWILIO_ACCOUNT_SID")
+	authToken := os.Getenv("TWILIO_AUTH_TOKEN")
+	from := os.Getenv("TWILIO_PHONE_NUMBER")
+
+	client := twilio.NewRestClientWithParams(twilio.ClientParams{
+		Username: accountSID,
+		Password: authToken,
+	})
+
+	return &SMSHandler{
+		client:       client,
+		fromPhoneNum: from,
+	}
+}
+
+// Send sends SMS using Twilio API and returns DispatchResult
 func (h *SMSHandler) Send(ctx context.Context, notif models.Notification) models.DispatchResult {
-	// Simulate API call delay
-	select {
-	case <-time.After(100 * time.Millisecond):
-	case <-ctx.Done():
+	params := &openapi.CreateMessageParams{}
+	params.SetTo(notif.Recipient)
+	params.SetFrom(h.fromPhoneNum)
+	params.SetBody(notif.Message)
+
+	resp, err := h.client.Api.CreateMessage(params)
+	if err != nil {
+		logger.Error(fmt.Errorf("[SMS] Error sending to %s: %w", notif.Recipient, err))
 		return models.DispatchResult{
 			NotificationID: notif.ID,
 			Success:        false,
-			Error:          "context cancelled",
+			Error:          err.Error(),
 			Timestamp:      time.Now(),
 		}
 	}
 
-	// Simulate success/failure (90% success rate for demo)
-	success := true // For now, always succeed
-	logger.Info(fmt.Sprintf("[SMS] Sent to %s: %s", notif.Recipient, notif.Message))
+	logger.Info(fmt.Sprintf("[SMS] Sent to %s, SID=%s", notif.Recipient, *resp.Sid))
 
 	return models.DispatchResult{
 		NotificationID: notif.ID,
-		Success:        success,
+		Success:        true,
 		Error:          "",
 		Timestamp:      time.Now(),
 	}
