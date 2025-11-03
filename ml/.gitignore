@@ -1,0 +1,88 @@
+# ---------------------------
+# Python and Anaconda
+# ---------------------------
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pkl
+*.joblib
+*.ipynb_checkpoints/
+*.log
+*.tmp
+*.swp
+
+# Environment and build
+.env
+.venv
+venv/
+env/
+conda_env/
+build/
+dist/
+*.egg-info/
+*.egg
+
+# ---------------------------
+# IDE / OS specific
+# ---------------------------
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.lnk
+
+# ---------------------------
+# Machine Learning Artifacts
+# ---------------------------
+# Model files and checkpoints
+*.h5
+*.ckpt
+*.pt
+*.onnx
+*.bin
+*.tflite
+*.pb
+*.npy
+*.npz
+
+# Cached data and experiment logs
+runs/
+logs/
+wandb/
+mlruns/
+tensorboard/
+checkpoints/
+
+# ---------------------------
+# Data and Outputs
+# ---------------------------
+data/
+*.csv
+*.xlsx
+*.json
+*.zip
+*.tar
+*.gz
+
+# ---------------------------
+# Project-specific folders
+# ---------------------------
+# Ignore heavy deployment artifacts but keep code
+deployements/**/model_artifacts/
+!deployements/**/ocean-hazard-api/*.py
+
+# Documentation builds
+Documentation/__pycache__/
+Documentation/*.pdf
+Documentation/*.docx
+Documentation/build/
+
+# ---------------------------
+# System and Backup files
+# ---------------------------
+*.bak
+*.old
+*.orig
+*.tmp
+~$*

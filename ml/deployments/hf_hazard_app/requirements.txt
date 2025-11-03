@@ -1,0 +1,6 @@
+scikit-learn==1.6.1
+sentence-transformers==5.1.2
+numpy==1.26.4
+fastapi
+uvicorn[standard]
+pydantic
