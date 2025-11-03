@@ -1,4 +1,3 @@
-// internal/dispatcher/dispatcher.go
 package dispatcher
 
 import (
@@ -9,42 +8,39 @@ import (
 
 	"notification-service/internal/dispatcher/channels"
 	"notification-service/internal/logger"
+	"notification-service/internal/storage"
 	"notification-service/pkg/models"
 )
 
 type Dispatcher struct {
 	handlers map[string]ChannelHandler
+	store    storage.NotificationStore
 }
 
-func NewDispatcher() *Dispatcher {
+func NewDispatcher(store storage.NotificationStore) *Dispatcher {
 	return &Dispatcher{
 		handlers: map[string]ChannelHandler{
 			"sms":   &channels.SMSHandler{},
 			"email": &channels.EmailHandler{},
 			"push":  &channels.PushHandler{},
 		},
+		store: store,
 	}
 }
 
-// DispatchEvent sends notifications for all channels and recipients
 func (d *Dispatcher) DispatchEvent(ctx context.Context, event models.Event) []models.DispatchResult {
 	results := []models.DispatchResult{}
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 
-	// For each channel specified in the event
 	for _, channel := range event.Channels {
 		handler, exists := d.handlers[channel]
 		if !exists {
 			logger.Info(fmt.Sprintf("Unknown channel: %s, skipping", channel))
 			continue
 		}
-
-		// For each recipient
 		for _, recipient := range event.Recipients {
 			wg.Add(1)
-
-			// Spawn goroutine for concurrent dispatch
 			go func(ch string, rec string) {
 				defer wg.Done()
 
@@ -58,17 +54,27 @@ func (d *Dispatcher) DispatchEvent(ctx context.Context, event models.Event) []mo
 					Timestamp: time.Now(),
 				}
 
+				// Save initial record
+				if err := d.store.SaveNotification(ctx, notif); err != nil {
+					logger.Error(fmt.Errorf("save notification: %w", err))
+				}
+
 				result := handler.Send(ctx, notif)
+
+				// Update status
+				if result.Success {
+					_ = d.store.UpdateNotificationStatus(ctx, notif.ID, "success", "")
+					logger.Info(fmt.Sprintf("✓ Dispatch success: %s to %s via %s", event.Title, rec, ch))
+				} else {
+					_ = d.store.UpdateNotificationStatus(ctx, notif.ID, "failed", result.Error)
+					// Schedule a retry 5 minutes later for now (configurable later)
+					_ = d.store.ScheduleRetry(ctx, notif.ID, time.Now().Add(5*time.Minute), result.Error)
+					logger.Info(fmt.Sprintf("✗ Dispatch failed: %s to %s via %s - %s", event.Title, rec, ch, result.Error))
+				}
 
 				mu.Lock()
 				results = append(results, result)
 				mu.Unlock()
-
-				if result.Success {
-					logger.Info(fmt.Sprintf("✓ Dispatch success: %s to %s via %s", event.Title, rec, ch))
-				} else {
-					logger.Info(fmt.Sprintf("✗ Dispatch failed: %s to %s via %s - %s", event.Title, rec, ch, result.Error))
-				}
 			}(channel, recipient)
 		}
 	}

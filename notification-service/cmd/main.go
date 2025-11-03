@@ -1,17 +1,34 @@
 package main
 
 import (
+	"context"
+	"log"
+
 	"notification-service/internal/api"
+	"notification-service/internal/config"
+	"notification-service/internal/processor"
+	redisstore "notification-service/internal/storage/redis"
 
 	"github.com/gin-gonic/gin"
 )
 
 func main() {
-	router := gin.Default()
+	cfg := config.Load()
 
-	// Route setup
-	router.POST("/events", api.HandleEvent)
+	// Build store with a startup connectivity check
+	ctx, cancel := context.WithTimeout(context.Background(), 10_000_000_000) // 10s
+	defer cancel()
 
-	// Start server
-	router.Run(":8080") // default port 8080
+	store, err := redisstore.NewRedisStore(ctx, cfg.RedisURL)
+	if err != nil {
+		log.Fatalf("redis init: %v", err)
+	}
+
+	processor.Init(store)
+
+	r := gin.Default()
+	// Optional: lock down proxies for the warning in dev/prod
+	// r.SetTrustedProxies([]string{"127.0.0.1"})
+	r.POST("/events", api.HandleEvent)
+	r.Run(":8080")
 }
