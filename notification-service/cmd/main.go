@@ -3,11 +3,9 @@ package main
 import (
 	"context"
 	"log"
-
 	"notification-service/internal/api"
-	"notification-service/internal/config"
-	"notification-service/internal/processor"
 	redisstore "notification-service/internal/storage/redis"
+	"os"
 
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
@@ -15,22 +13,22 @@ import (
 
 func main() {
 	_ = godotenv.Load()
-	cfg := config.Load()
 
-	// Build store with a startup connectivity check
-	ctx, cancel := context.WithTimeout(context.Background(), 10_000_000_000) // 10s
-	defer cancel()
-
-	store, err := redisstore.NewRedisStore(ctx, cfg.RedisURL)
+	ctx := context.Background()
+	store, err := redisstore.NewRedisStore(ctx, redisstore.Config{
+		Addr:     os.Getenv("REDIS_ADDR"),
+		Username: os.Getenv("REDIS_USERNAME"),
+		Password: os.Getenv("REDIS_PASSWORD"),
+		UseTLS:   false, // set true if using rediss://
+	})
 	if err != nil {
 		log.Fatalf("redis init: %v", err)
 	}
-
-	processor.Init(store)
+	defer store.Close(ctx)
 
 	r := gin.Default()
-	// Optional: lock down proxies for the warning in dev/prod
-	// r.SetTrustedProxies([]string{"127.0.0.1"})
 	r.POST("/events", api.HandleEvent)
-	r.Run(":8080")
+	if err := r.Run(":8080"); err != nil {
+		log.Fatalf("server failed to start: %v", err)
+	}
 }
