@@ -12,4 +12,6 @@ type NotificationStore interface {
 	ScheduleRetry(ctx context.Context, notifID string, nextRetry time.Time, lastErr string) error
 	GetDueRetries(ctx context.Context, before time.Time, limit int) ([]string, error)
 	RemoveFromRetryQueue(ctx context.Context, notifID string) error
+	GetNotification(ctx context.Context, notificationID string) (*models.Notification, error)
+	Ping(ctx context.Context) error
 }

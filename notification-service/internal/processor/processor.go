@@ -15,6 +15,10 @@ var (
 	disp *dispatcher.Dispatcher
 )
 
+func Disp() *dispatcher.Dispatcher {
+	return disp
+}
+
 func Init(store storage.NotificationStore) {
 	disp = dispatcher.NewDispatcher(store)
 }

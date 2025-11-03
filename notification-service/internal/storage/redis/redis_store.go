@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"notification-service/pkg/models"
+	"strconv"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -147,4 +148,37 @@ func (s *RedisStore) RemoveFromRetryQueue(ctx context.Context, notifID string) e
 		return fmt.Errorf("zrem: %w", err)
 	}
 	return nil
+}
+
+func (s *RedisStore) GetNotification(ctx context.Context, id string) (*models.Notification, error) {
+	notif := &models.Notification{}
+
+	key := s.notifKey(id)
+	result, err := s.rdb.HGetAll(ctx, key).Result()
+	if err != nil {
+		return nil, fmt.Errorf("hgetall: %w", err)
+	}
+	if len(result) == 0 {
+		return nil, errors.New("notification not found")
+	}
+
+	notif.ID = id
+	notif.EventID = result["event_id"]
+	notif.Recipient = result["recipient"]
+	notif.Channel = result["channel"]
+	notif.Message = result["message"]
+	notif.Status = result["status"]
+	notif.Error = result["error"]
+
+	if ts, ok := result["created_at"]; ok {
+		if t, err := strconv.ParseInt(ts, 10, 64); err == nil {
+			notif.Timestamp = time.Unix(t, 0)
+		}
+	}
+
+	return notif, nil
+}
+
+func (s *RedisStore) Ping(ctx context.Context) error {
+	return s.rdb.Ping(ctx).Err()
 }
