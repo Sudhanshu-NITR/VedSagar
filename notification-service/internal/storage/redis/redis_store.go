@@ -41,14 +41,14 @@ func NewRedisStore(ctx context.Context, cfg Config) (*RedisStore, error) {
 		MaxRetries:   3,
 	}
 
-	// Optional TLS for Redis Cloud or rediss://
+	// Optional TLS for Redis Cloud or rediss:// usage
 	if cfg.UseTLS {
 		opts.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12}
 	}
 
 	rdb := redis.NewClient(opts)
 
-	fmt.Print("✅ Redis connected successfully")
+	fmt.Print("✅ Redis connected successfully\n")
 
 	if err := rdb.Ping(ctx).Err(); err != nil {
 		return nil, fmt.Errorf("redis ping failed: %w", err)
@@ -65,7 +65,8 @@ func (s *RedisStore) notifKey(id string) string {
 	return "notification:" + id
 }
 
-// SaveNotification stores/updates the notification hash
+// SaveNotification stores/updates the notification hash.
+// Now also writes attempts and max_retries if present in the model.
 func (s *RedisStore) SaveNotification(ctx context.Context, notif models.Notification) error {
 	key := s.notifKey(notif.ID)
 	fields := map[string]interface{}{
@@ -78,13 +79,22 @@ func (s *RedisStore) SaveNotification(ctx context.Context, notif models.Notifica
 		"created_at": notif.Timestamp.Unix(),
 		"updated_at": notif.Timestamp.Unix(),
 	}
+
+	// persist attempts and max_retries if present (0 means unset)
+	if notif.Attempts > 0 {
+		fields["attempts"] = notif.Attempts
+	}
+	if notif.MaxRetries > 0 {
+		fields["max_retries"] = notif.MaxRetries
+	}
+
 	if _, err := s.rdb.HSet(ctx, key, fields).Result(); err != nil {
 		return fmt.Errorf("hset: %w", err)
 	}
 	return nil
 }
 
-// UpdateNotificationStatus marks final state for the attempt
+// UpdateNotificationStatus marks final state for the attempt and updates timestamp.
 func (s *RedisStore) UpdateNotificationStatus(ctx context.Context, id string, status string, errMsg string) error {
 	key := s.notifKey(id)
 	fields := map[string]interface{}{
@@ -106,6 +116,7 @@ func (s *RedisStore) ScheduleRetry(ctx context.Context, notifID string, nextRetr
 		return errors.New("sched retry: empty notifID")
 	}
 
+	// update error metadata and timestamp
 	if _, err := s.rdb.HSet(ctx, s.notifKey(notifID),
 		"error", lastErr,
 		"updated_at", time.Now().Unix(),
@@ -150,6 +161,7 @@ func (s *RedisStore) RemoveFromRetryQueue(ctx context.Context, notifID string) e
 	return nil
 }
 
+// GetNotification fetches a notification struct from Redis (parses attempts and max_retries)
 func (s *RedisStore) GetNotification(ctx context.Context, id string) (*models.Notification, error) {
 	notif := &models.Notification{}
 
@@ -170,13 +182,65 @@ func (s *RedisStore) GetNotification(ctx context.Context, id string) (*models.No
 	notif.Status = result["status"]
 	notif.Error = result["error"]
 
+	// parse created_at into Timestamp
 	if ts, ok := result["created_at"]; ok {
 		if t, err := strconv.ParseInt(ts, 10, 64); err == nil {
 			notif.Timestamp = time.Unix(t, 0)
 		}
 	}
 
+	// parse attempts and max_retries (optional)
+	if v, ok := result["attempts"]; ok {
+		if ai, err := strconv.Atoi(v); err == nil {
+			notif.Attempts = ai
+		}
+	}
+	if v, ok := result["max_retries"]; ok {
+		if ai, err := strconv.Atoi(v); err == nil {
+			notif.MaxRetries = ai
+		}
+	}
+
 	return notif, nil
+}
+
+// IncrementAttempts increments attempts and records last_error + last_attempt_at.
+// Returns new attempts count and any error.
+func (s *RedisStore) IncrementAttempts(ctx context.Context, id string, lastError string) (int, error) {
+	key := s.notifKey(id)
+
+	pipe := s.rdb.TxPipeline()
+	incr := pipe.HIncrBy(ctx, key, "attempts", 1)
+	pipe.HSet(ctx, key, "last_error", lastError)
+	pipe.HSet(ctx, key, "last_attempt_at", time.Now().Unix())
+	_, err := pipe.Exec(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("increment attempts exec: %w", err)
+	}
+	attempts, _ := incr.Result()
+	return int(attempts), nil
+}
+
+func (s *RedisStore) UpdateAPIResponse(ctx context.Context, id string, statusCode int, body string) error {
+	if id == "" {
+		return fmt.Errorf("update api response: empty id")
+	}
+	key := s.notifKey(id)
+
+	// Keep body short to avoid huge storage; trim to 1000 chars for safety
+	if len(body) > 1000 {
+		body = body[:1000]
+	}
+
+	_, err := s.rdb.HSet(ctx, key,
+		"api_code", statusCode,
+		"api_response", body,
+		"updated_at", time.Now().Unix(),
+	).Result()
+	if err != nil {
+		return fmt.Errorf("hset api response: %w", err)
+	}
+	return nil
 }
 
 func (s *RedisStore) Ping(ctx context.Context) error {

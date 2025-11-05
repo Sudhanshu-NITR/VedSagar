@@ -61,15 +61,44 @@ func (d *Dispatcher) DispatchEvent(ctx context.Context, event models.Event) []mo
 
 				result := handler.Send(ctx, notif)
 
-				// Update status
 				if result.Success {
 					_ = d.store.UpdateNotificationStatus(ctx, notif.ID, "success", "")
 					logger.Info(fmt.Sprintf("✓ Dispatch success: %s to %s via %s", event.Title, rec, ch))
 				} else {
-					_ = d.store.UpdateNotificationStatus(ctx, notif.ID, "failed", result.Error)
-					// Schedule a retry 5 minutes later for now (configurable later)
-					_ = d.store.ScheduleRetry(ctx, notif.ID, time.Now().Add(5*time.Minute), result.Error)
-					logger.Info(fmt.Sprintf("✗ Dispatch failed: %s to %s via %s - %s", event.Title, rec, ch, result.Error))
+					// increment attempts and persist last error
+					newAttempts, err := d.store.IncrementAttempts(ctx, notif.ID, result.Error)
+					if err != nil {
+						logger.Error(fmt.Errorf("increment attempts: %w", err))
+						// fallback: still schedule a retry to avoid losing it
+						newAttempts = 1
+					}
+
+					// determine max retries (use stored value if present, else fallback)
+					maxRetries := notif.MaxRetries
+					if maxRetries == 0 {
+						maxRetries = 5 // default if not set via model/env
+					}
+
+					// if we've hit or exceeded max retries, mark permanent failure
+					if newAttempts >= maxRetries {
+						_ = d.store.UpdateNotificationStatus(ctx, notif.ID, "failed_permanent", result.Error)
+						_ = d.store.RemoveFromRetryQueue(ctx, notif.ID)
+						logger.Info(fmt.Sprintf("✗ Permanent failure: %s to %s via %s - %s", event.Title, rec, ch, result.Error))
+					} else {
+						// compute exponential backoff
+						baseSeconds := int64(300)  // 5 minutes base
+						maxBackoff := int64(86400) // cap backoff at 24 hours
+						delay := baseSeconds << uint(newAttempts-1)
+						if delay > maxBackoff {
+							delay = maxBackoff
+						}
+						nextRetry := time.Now().Add(time.Duration(delay) * time.Second)
+
+						_ = d.store.UpdateNotificationStatus(ctx, notif.ID, "failed", result.Error)
+						_ = d.store.ScheduleRetry(ctx, notif.ID, nextRetry, result.Error)
+						logger.Info(fmt.Sprintf("✗ Dispatch failed: %s to %s via %s - %s (attempt %d/%d) will retry at %s",
+							event.Title, rec, ch, result.Error, newAttempts, maxRetries, nextRetry.Format(time.RFC3339)))
+					}
 				}
 
 				mu.Lock()
